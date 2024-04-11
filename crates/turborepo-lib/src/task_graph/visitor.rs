@@ -23,7 +23,7 @@ use turborepo_telemetry::events::{
     generic::GenericEventBuilder, task::PackageTaskEventBuilder, EventBuilder, TrackedErrors,
 };
 use turborepo_ui::{
-    tui::{self, TuiTask},
+    tui::{self, AppSender, TuiTask},
     ColorSelector, OutputClient, OutputSink, OutputWriter, PrefixedUI, UI,
 };
 use which::which;
@@ -62,7 +62,7 @@ pub struct Visitor<'a> {
     sink: OutputSink<StdWriter>,
     task_hasher: TaskHasher<'a>,
     ui: UI,
-    experimental_ui: bool,
+    experimental_ui_sender: Option<AppSender>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -105,7 +105,7 @@ impl<'a> Visitor<'a> {
         manager: ProcessManager,
         repo_root: &'a AbsoluteSystemPath,
         global_env: EnvironmentVariableMap,
-        experimental_ui: bool,
+        experimental_ui_sender: Option<AppSender>,
     ) -> Self {
         let task_hasher = TaskHasher::new(
             package_inputs_hashes,
@@ -132,7 +132,7 @@ impl<'a> Visitor<'a> {
             task_hasher,
             ui,
             global_env,
-            experimental_ui,
+            experimental_ui_sender,
         }
     }
 
@@ -144,16 +144,6 @@ impl<'a> Visitor<'a> {
     ) -> Result<Vec<TaskError>, Error> {
         let concurrency = self.run_opts.concurrency as usize;
         let (node_sender, mut node_stream) = mpsc::channel(concurrency);
-
-        let (ui, render_thread_handle) = if self.experimental_ui {
-            let task_names = engine.tasks_with_command(&self.package_graph);
-
-            let (handle, receiver) = tui::AppSender::new();
-            let app = tokio::task::spawn_blocking(move || tui::run_app(task_names, receiver));
-            (Some(handle), Some(app))
-        } else {
-            (None, None)
-        };
 
         let engine_handle = {
             let engine = engine.clone();
@@ -282,7 +272,7 @@ impl<'a> Visitor<'a> {
                     let vendor_behavior =
                         Vendor::infer().and_then(|vendor| vendor.behavior.as_ref());
 
-                    let output_client = if let Some(handle) = &ui {
+                    let output_client = if let Some(handle) = &self.experimental_ui_sender {
                         TaskOutput::UI(handle.task(info.to_string()))
                     } else {
                         TaskOutput::Direct(self.output_client(&info, vendor_behavior))
@@ -315,16 +305,6 @@ impl<'a> Visitor<'a> {
             result.unwrap_or_else(|e| panic!("task executor panicked: {e}"));
         }
         drop(factory);
-        if let Some(handle) = ui {
-            handle.stop();
-            if let Err(e) = render_thread_handle
-                .unwrap()
-                .await
-                .expect("render thread panicked")
-            {
-                error!("error encountered rendering tui: {e}");
-            }
-        }
 
         // Write out the traced-config.json file if we have one
         self.task_access.save().await;
@@ -483,7 +463,7 @@ impl<'a> Visitor<'a> {
     pub fn dry_run(&mut self) {
         self.dry = true;
         // No need to start a TUI on dry run
-        self.experimental_ui = false;
+        self.experimental_ui_sender = None;
     }
 }
 
@@ -637,7 +617,7 @@ impl<'a> ExecContextFactory<'a> {
         ExecContext {
             engine: self.engine.clone(),
             ui: self.visitor.ui,
-            experimental_ui: self.visitor.experimental_ui,
+            experimental_ui: self.visitor.experimental_ui_sender.is_some(),
             is_github_actions: self.visitor.run_opts.is_github_actions,
             pretty_prefix: self
                 .visitor

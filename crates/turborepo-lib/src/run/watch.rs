@@ -6,6 +6,7 @@ use thiserror::Error;
 use tokio::{select, task::JoinHandle};
 use turborepo_repository::package_graph::PackageName;
 use turborepo_telemetry::events::command::CommandEventBuilder;
+use turborepo_ui::tui::AppSender;
 
 use crate::{
     cli::{Command, RunArgs},
@@ -78,6 +79,8 @@ impl WatchClient {
             .build(&handler, telemetry.clone())
             .await?;
 
+        let (sender, handle) = run.start_experimental_ui();
+
         run.print_run_prelude();
 
         let connector = DaemonConnector {
@@ -104,6 +107,7 @@ impl WatchClient {
                     &telemetry,
                     &handler,
                     &mut persistent_tasks_handle,
+                    Some(sender.clone()),
                 )
                 .await?;
             }
@@ -132,6 +136,7 @@ impl WatchClient {
         telemetry: &CommandEventBuilder,
         handler: &SignalHandler,
         persistent_tasks_handle: &mut Option<JoinHandle<Result<i32, run::Error>>>,
+        ui_sender: Option<AppSender>,
     ) -> Result<(), Error> {
         // Should we recover here?
         match event {
@@ -180,7 +185,7 @@ impl WatchClient {
                             .build(&signal_handler, telemetry)
                             .await?;
 
-                        run.run().await
+                        run.run(ui_sender.clone()).await
                     }),
                 );
             }
@@ -223,14 +228,16 @@ impl WatchClient {
                     let mut persistent_run = run.create_run_for_persistent_tasks();
                     // If we have persistent tasks, we run them on a separate thread
                     // since persistent tasks don't finish
-                    *persistent_tasks_handle =
-                        Some(tokio::spawn(async move { persistent_run.run().await }));
+                    let persistent_ui_sender = ui_sender.clone();
+                    *persistent_tasks_handle = Some(tokio::spawn(async move {
+                        persistent_run.run(persistent_ui_sender).await
+                    }));
 
                     // But we still run the regular tasks blocking
                     let mut non_persistent_run = run.create_run_without_persistent_tasks();
-                    non_persistent_run.run().await?;
+                    non_persistent_run.run(ui_sender.clone()).await?;
                 } else {
-                    run.run().await?;
+                    run.run(ui_sender.clone()).await?;
                 }
             }
             proto::package_change_event::Event::Error(proto::PackageChangeError { message }) => {

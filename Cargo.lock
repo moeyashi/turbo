@@ -11310,6 +11310,7 @@ dependencies = [
  "anyhow",
  "dunce",
  "futures 0.3.30",
+ "indexmap 1.9.3",
  "once_cell",
  "serde",
  "serde_json",

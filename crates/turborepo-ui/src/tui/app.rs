@@ -123,12 +123,12 @@ fn run_app_inner<B: Backend>(
     // Render initial state to paint the screen
     terminal.draw(|f| view(&mut app, f))?;
     let mut last_render = Instant::now();
-
     while let Some(event) = poll(app.interact, &receiver, last_render + FRAMERATE) {
         if let Some(message) = update(terminal, &mut app, event)? {
             persist_bytes(terminal, &message)?;
         }
         if app.done {
+            println!("done");
             break;
         }
         if FRAMERATE <= last_render.elapsed() {
@@ -136,6 +136,8 @@ fn run_app_inner<B: Backend>(
             last_render = Instant::now();
         }
     }
+
+    eprintln!("DONE 2");
 
     let started_tasks = app.table.tasks_started().collect();
     app.pane.render_remaining(started_tasks, terminal)?;
@@ -150,7 +152,10 @@ fn poll(interact: bool, receiver: &AppReceiver, deadline: Instant) -> Option<Eve
         Ok(Some(event)) => Some(event),
         Ok(None) => receiver.recv(deadline).ok(),
         // Unable to read from stdin, shut down and attempt to clean up
-        Err(_) => Some(Event::Stop),
+        Err(_) => {
+            eprintln!("unable to read from stdin");
+            Some(Event::Stop)
+        }
     }
 }
 

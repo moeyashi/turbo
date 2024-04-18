@@ -75,6 +75,7 @@ impl WatchClient {
             execution_args: execution_args.clone(),
         });
 
+        let mut persistent_tasks_handle: Option<JoinHandle<_>> = None;
         let mut run = RunBuilder::new(new_base)?
             .build(&handler, telemetry.clone())
             .await?;
@@ -107,7 +108,8 @@ impl WatchClient {
                     &telemetry,
                     &handler,
                     &mut persistent_tasks_handle,
-                    Some(sender.clone()),
+                    &mut main_run_handle,
+                    sender.clone(),
                 )
                 .await?;
             }
@@ -135,7 +137,7 @@ impl WatchClient {
         base: &CommandBase,
         telemetry: &CommandEventBuilder,
         handler: &SignalHandler,
-        persistent_tasks_handle: &mut Option<JoinHandle<Result<i32, run::Error>>>,
+        persistent_tasks_handle: &mut Option<JoinHandle<Result<i32, run::error::Error>>>,
         ui_sender: Option<AppSender>,
     ) -> Result<(), Error> {
         // Should we recover here?

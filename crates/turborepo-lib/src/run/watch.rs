@@ -75,12 +75,14 @@ impl WatchClient {
             execution_args: execution_args.clone(),
         });
 
-        let mut persistent_tasks_handle: Option<JoinHandle<_>> = None;
         let mut run = RunBuilder::new(new_base)?
             .build(&handler, telemetry.clone())
             .await?;
 
-        let (sender, handle) = run.start_experimental_ui();
+        let (sender, handle) = run
+            .has_experimental_ui()
+            .then(|| run.start_experimental_ui())
+            .unzip();
 
         run.print_run_prelude();
 
@@ -108,7 +110,6 @@ impl WatchClient {
                     &telemetry,
                     &handler,
                     &mut persistent_tasks_handle,
-                    &mut main_run_handle,
                     sender.clone(),
                 )
                 .await?;

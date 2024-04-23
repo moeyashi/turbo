@@ -278,16 +278,12 @@ impl FileHashes {
                 // sibling file or directory that starts with the same prefix,
                 // e,g an update to apps/foo_decoy when the package path is
                 // apps/foo.
-                if let Some(package_path_to_file) = file_path.strip_prefix(package_path) {
-                    // Pass along the path to the package, the path _within_ the package to this
-                    // change, in unix format, and the set of input specs that
-                    // we're tracking.
-                    subtrie
-                        .value()
-                        .map(|specs| (package_path, package_path_to_file.to_unix(), specs))
-                } else {
-                    None
-                }
+                let package_path_to_file = file_path.strip_prefix(package_path)?;
+                // Pass along the path to the package, the path _within_ the package to this
+                // change, in unix format, and the set of input specs that
+                // we're tracking.
+                let specs = subtrie.value()?;
+                Some((package_path, package_path_to_file.to_unix(), specs))
             })
             // now that we have a path and a set of specs, filter the specs to the relevant ones
             .map(|(package_path, change_in_package, maybe_glob_sets)| {
